@@ -1,0 +1,11 @@
+[Unit]
+    Description=VocabDaemon
+    After=graphical-session.target
+
+[Service]
+    ExecStart=/usr/local/bin/VocabDaemon
+    Type=forking
+    Restart=on-failure
+    RestartSec=5
+[Install]
+    WantedBy=default.target
