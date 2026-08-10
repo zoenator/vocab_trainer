@@ -1,7 +1,11 @@
+#include <stddef.h>
+#include <stdint.h>
 #include <time.h>
 #define _XOPEN_SOURCE 700
 
+#include "db.h"
 #include "paths.h"
+#include "ui.h"
 #include "vocab_entry.h"
 
 #include <fcntl.h>
@@ -14,6 +18,11 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// macros
+#define PENALTY_DELAY 60
+#define SEC_PER_DAY 86400
+#define USER_LANG "DE"
 
 // signal handler
 volatile sig_atomic_t keep_running = 1;
@@ -33,73 +42,60 @@ void setup_signal_handling()
 }
 
 // vocab logic
-void prompt_vocab()
+
+void check_and_prompt_vocab()
 {
     vocab_entry cur_ve;
-
-    time_t now = time(NULL);
-    FILE *fvoc = fopen(get_storage_filepath(), "r+b");
-    if (fvoc != NULL)
+    if (get_due_vocab(&cur_ve))
     {
-        while (fread(&cur_ve, sizeof(vocab_entry), 1, fvoc))
+        time_t now = time(NULL);
+        // * create bidirectinoal logic
+        int direction = rand() % 2;
+        char *origin_word = NULL;
+        char *translation = NULL;
+        char *language = NULL;
+        if (direction == 0)
         {
-            if (cur_ve.next_due <= now)
-            {
-                char cmd[512];
-                // TODO Implement logic here to choose between first to second language or second to first language
-
-                // * create command string for notification
-                snprintf(cmd,
-                         sizeof(cmd),
-                         "notify-send --action='default=Antworten' -t 10000 'Vocab Trainer' 'Translate: %s to %s'",
-                         cur_ve.german,
-                         cur_ve.language);
-
-                FILE *fp = popen(cmd, "r");
-                char action[64] = {0};
-                fgets(action, sizeof(action), fp);
-                pclose(fp);
-                if (strncmp(action, "default", strlen("default")) == 0)
-                {
-                    // * create command string for zenity prompt
-                    snprintf(cmd,
-                             sizeof(cmd),
-                             "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'",
-                             cur_ve.german,
-                             cur_ve.language);
-                    FILE *fp = popen(cmd, "r");
-                    char answer[128];
-                    fgets(answer, sizeof(answer), fp);
-                    pclose(fp);
-                    answer[strcspn(answer, "\r\n")] = '\0';
-                    if (strcmp(cur_ve.translation, answer) == 0)
-                    {
-                        // * correct answer
-                        cur_ve.difficulty < 4 ? cur_ve.difficulty++ : cur_ve.difficulty;
-                        cur_ve.next_due = now + cur_ve.difficulty * 86400;
-                    }
-                    else
-                    {
-                        // * incorrect answer
-                        /*
-                            ! rn correct answer has no margin its either right or wrong, implement system that can evaluate
-                            ! how close u were to the real solution
-                        */
-                        cur_ve.difficulty > 0 ? cur_ve.difficulty-- : cur_ve.difficulty;
-                        cur_ve.next_due = now + 60;
-                    }
-                }
-                else
-                {
-                    cur_ve.next_due = now + 300;
-                }
-                cur_ve.last_occurence = now;
-                fseek(fvoc, -sizeof(vocab_entry), SEEK_CUR);
-                fwrite(&cur_ve, sizeof(vocab_entry), 1, fvoc);
-                break;
-            }
+            origin_word = cur_ve.german;
+            translation = cur_ve.translation;
+            language = cur_ve.language;
         }
-        fclose(fvoc);
+        else
+        {
+            origin_word = cur_ve.translation;
+            translation = cur_ve.german;
+            language = USER_LANG;
+        }
+
+        char answer[128] = {0};
+        // * create command string for notification
+        ui_prompt_translation(origin_word, language, answer, sizeof(answer) / sizeof(char));
+        if (answer[0] == '\0')
+        {
+            cur_ve.next_due = now + 300;
+        }
+        else
+        {
+            answer[strcspn(answer, "\r\n")] = '\0';
+            if (strcmp(translation, answer) == 0)
+            {
+                // * correct answer
+                cur_ve.difficulty < 4 ? cur_ve.difficulty++ : cur_ve.difficulty;
+                cur_ve.next_due = now + cur_ve.difficulty * SEC_PER_DAY;
+            }
+            else
+            {
+                // * incorrect answer
+                /*
+                    ! rn correct answer has no margin its either right or wrong, implement system that can evaluate
+                    ! how close u were to the real solution
+                */
+                cur_ve.difficulty > 0 ? cur_ve.difficulty-- : cur_ve.difficulty;
+                cur_ve.next_due = now + PENALTY_DELAY;
+            }
+            cur_ve.last_occurence = now;
+        }
+        update_vocab(&cur_ve);
     }
 }
 
@@ -112,42 +108,32 @@ void add_word(int *fd, char *buffer, int size)
     if (bytes_read > 0)
     {
         buffer[bytes_read] = '\0';
-        FILE *f = fopen(get_storage_filepath(), "ab");
-        if (f)
+        vocab_entry ve;
+        memset(&ve, 0, sizeof(vocab_entry));
+
+        char *destinations[] = {ve.language, ve.german, ve.translation, ve.type, ve.gender};
+        size_t sizes[] = {sizeof(ve.language), sizeof(ve.german), sizeof(ve.translation), sizeof(ve.type), sizeof(ve.gender)};
+        int num_fields = sizeof(destinations) / sizeof(destinations[0]);
+
+        char *token = strtok(buffer, "|");
+
+        for (int i = 0; i < num_fields; i++)
         {
-            vocab_entry ve;
-            memset(&ve, 0, sizeof(vocab_entry));
-            char *token = strtok(buffer, "|");
-
-            strcpy(ve.language, token);
+            if (token == NULL)
+                return;
+            strncpy(destinations[i], token, sizes[i]);
+            destinations[i][sizes[i] - 1] = '\0';
             token = strtok(NULL, "|");
-
-            strcpy(ve.german, token);
-            token = strtok(NULL, "|");
-
-            strcpy(ve.translation, token);
-            token = strtok(NULL, "|");
-
-            strcpy(ve.type, token);
-            token = strtok(NULL, "|");
-
-            strcpy(ve.gender, token);
-            token = strtok(NULL, "|");
-
-            ve.difficulty = 0;
-            ve.last_occurence = time(NULL);
-            ve.next_due = time(NULL);
-
-            fwrite(&ve, 1, sizeof(vocab_entry), f);
-            fclose(f);
         }
+        insert_vocab(&ve);
     }
     else if (bytes_read == 0)
     {
         close(*fd);
-        *fd = open("/tmp/vocab_pipe", O_RDWR);
+        *fd = open(PIPE_PATH, O_RDWR);
     }
 }
+
 void daemonize()
 {
     pid_t PID, w;
@@ -174,10 +160,10 @@ void daemonize()
             close(null_fd);
             umask(0); // new created files/dirs wont be masked
             // * create Pipe
-            mkfifo("/tmp/vocab_pipe", 0666);
+            mkfifo(PIPE_PATH, 0666);
 
             // * open pipe in readonly
-            int fd = open("/tmp/vocab_pipe", O_RDWR);
+            int fd = open(PIPE_PATH, O_RDWR);
 
             // * create polling struct
             struct pollfd pfd;
@@ -191,7 +177,7 @@ void daemonize()
                 if (ret == 0)
                 {
                     // * Timer for polling is over -> prompt for next vocab
-                    prompt_vocab();
+                    check_and_prompt_vocab();
                 }
                 else if (ret < 0)
                 {
@@ -207,7 +193,7 @@ void daemonize()
                 }
             }
             close(fd);
-            unlink("/tmp/vocab_pipe");
+            unlink(PIPE_PATH);
         }
         else if (PID > 0)
         {
@@ -232,6 +218,7 @@ void daemonize()
 
 int main(int argc, char **argv)
 {
+    srand(time(NULL));
     setup_signal_handling();
     daemonize();
 

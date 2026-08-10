@@ -1,9 +1,11 @@
 #pragma once
+#include <stdint.h>
 #include <time.h>
 
 typedef struct vocab_entry
 {
-
+        uint32_t uid;
+        int is_deleted;
         char language[16];
 
         char german[256];

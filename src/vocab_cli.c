@@ -11,7 +11,7 @@ int cmd_add(int argc, char **argv)
     // TODO This needs a more dynamic redesign (Here you cant type in gender without giving a tpye too which is kinda meh)
     if (argc < 5)
     {
-        printf("Usage: vocab add <lang> <origin_lang> <target_lang> [type] [gender]");
+        printf("Usage: VocabTrainer add <lang> <origin_lang> <target_lang> [type] [gender]");
         return 1;
     }
 
@@ -20,7 +20,7 @@ int cmd_add(int argc, char **argv)
 
     char msg[512];
     snprintf(msg, sizeof(msg), "%s|%s|%s|%s|%s", argv[2], argv[3], argv[4], type, gender);
-    int fd = open("/tmp/vocab_pipe", O_WRONLY);
+    int fd = open(PIPE_PATH, O_WRONLY);
     if (fd == -1)
     {
         printf("Error: Pipe not found.\n");
@@ -42,12 +42,14 @@ int cmd_stats(int argc, char **argv)
 
     // * read binary and calculate stats
     vocab_entry ve;
+    int exit_status = 0;
     // stat variables
     // TODO expand stats (e.G solved exercises/day ... )
     int levels[5] = {0};
     int total_words = 0;
-    int *different_languages = calloc(7, sizeof(int)); //! Add dynamic adjustment of both these arrays [Segfault!!!]
-    char **languages = calloc(7, sizeof(char *));
+    int *different_languages = calloc(2, sizeof(int));
+    char **languages = calloc(2, sizeof(char *));
+    int capacity = 2;
     if (languages == NULL)
     {
         printf("alloc error..\n");
@@ -71,11 +73,31 @@ int cmd_stats(int argc, char **argv)
         }
         if (!exists)
         {
-            if (count < 7) // ? Temporary fix while arrays remain static
+            if (count >= capacity)
             {
-                languages[count] = strdup(ve.language);
-                different_languages[count]++;
+                void *tmp = realloc(different_languages, sizeof(int) * capacity * 2);
+                if (tmp == NULL)
+                {
+                    printf("realloc error\n");
+                    exit_status = 1;
+                    goto EXIT;
+                }
+                different_languages = tmp;
+                memset(different_languages + capacity, 0, sizeof(int) * capacity);
+                tmp = realloc(languages, sizeof(char *) * capacity * 2);
+                if (tmp == NULL)
+                {
+                    printf("realloc error\n");
+                    exit_status = 1;
+                    goto EXIT;
+                }
+                languages = tmp;
+                memset(languages + capacity, 0, sizeof(char *) * capacity);
+                capacity *= 2;
             }
+
+            languages[count] = strdup(ve.language);
+            different_languages[count]++;
         }
         else
         {
@@ -87,6 +109,8 @@ int cmd_stats(int argc, char **argv)
 
     printf("Total words: %i\n", total_words);
     printf("Level distribution: %d %d %d %d %d\n", levels[0], levels[1], levels[2], levels[3], levels[4]);
+
+EXIT:
     for (int i = 0; languages[i] != NULL; i++)
     {
         printf("%s words: %d\n", languages[i], different_languages[i]);
@@ -96,7 +120,7 @@ int cmd_stats(int argc, char **argv)
     free(languages);
     free(different_languages);
 
-    return 0;
+    return exit_status;
 }
 
 int main(int argc, char **argv)

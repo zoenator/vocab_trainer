@@ -12,3 +12,5 @@ install_manifest.txt
 
 .vscode/
 .idea/
+.cache
+roadmap.txt
