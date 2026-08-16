@@ -45,7 +45,6 @@ int cmd_stats(int argc, char **argv)
     int exit_status = 0;
     // stat variables
     // TODO expand stats (e.G solved exercises/day ... )
-    int levels[5] = {0};
     int total_words = 0;
     int *different_languages = calloc(2, sizeof(int));
     char **languages = calloc(2, sizeof(char *));
@@ -57,7 +56,6 @@ int cmd_stats(int argc, char **argv)
     }
     while (fread(&ve, sizeof(vocab_entry), 1, f))
     {
-        levels[ve.difficulty]++;
         total_words++;
 
         unsigned int exists = 0;
@@ -108,7 +106,6 @@ int cmd_stats(int argc, char **argv)
     fclose(f);
 
     printf("Total words: %i\n", total_words);
-    printf("Level distribution: %d %d %d %d %d\n", levels[0], levels[1], levels[2], levels[3], levels[4]);
 
 EXIT:
     for (int i = 0; languages[i] != NULL; i++)

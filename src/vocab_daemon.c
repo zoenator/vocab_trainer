@@ -1,3 +1,6 @@
+#include "eval.h"
+#include "sm2.h"
+#include "utils.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -14,15 +17,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 // macros
-#define PENALTY_DELAY 60
-#define SEC_PER_DAY 86400
-#define USER_LANG "DE"
 
 // signal handler
 volatile sig_atomic_t keep_running = 1;
@@ -39,6 +40,7 @@ void setup_signal_handling()
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
     sigaction(SIGTERM, &sa, NULL);
+    signal(SIGCHLD, SIG_IGN);
 }
 
 // vocab logic
@@ -49,27 +51,46 @@ void check_and_prompt_vocab()
     if (get_due_vocab(&cur_ve))
     {
         time_t now = time(NULL);
-        // * create bidirectinoal logic
-        int direction = rand() % 2;
-        char *origin_word = NULL;
-        char *translation = NULL;
         char *language = NULL;
-        if (direction == 0)
+        char final_display[512] = {0};
+        char final_solution[256] = {0};
+        // * create bidirectinoal logic
+        if (strchr(cur_ve.front_text, '{') != NULL)
         {
-            origin_word = cur_ve.german;
-            translation = cur_ve.translation;
-            language = cur_ve.language;
+            parse_lueckentext(cur_ve.front_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+            language = "de"; // UI-hint
+        }
+        else if (strchr(cur_ve.back_text, '{') != NULL)
+        {
+            parse_lueckentext(cur_ve.back_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+            language = cur_ve.language; // UI-hint
         }
         else
         {
-            origin_word = cur_ve.translation;
-            translation = cur_ve.german;
-            language = USER_LANG;
+            int direction = rand() % 2;
+            char *origin_word = NULL;
+            char *translation = NULL;
+            if (direction == 0)
+            {
+                origin_word = cur_ve.front_text;
+                translation = cur_ve.back_text;
+                language = cur_ve.language;
+            }
+            else
+            {
+                origin_word = cur_ve.back_text;
+                translation = cur_ve.front_text;
+                language = USER_LANG;
+            }
+            strncpy(final_display, origin_word, sizeof(final_display));
+            strncpy(final_solution, translation, sizeof(final_solution));
         }
 
         char answer[128] = {0};
         // * create command string for notification
-        ui_prompt_translation(origin_word, language, answer, sizeof(answer) / sizeof(char));
+        ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char));
+        time_t done = time(NULL);
+        int time_taken = done - now;
         if (answer[0] == '\0')
         {
             cur_ve.next_due = now + 300;
@@ -77,22 +98,9 @@ void check_and_prompt_vocab()
         else
         {
             answer[strcspn(answer, "\r\n")] = '\0';
-            if (strcmp(translation, answer) == 0)
-            {
-                // * correct answer
-                cur_ve.difficulty < 4 ? cur_ve.difficulty++ : cur_ve.difficulty;
-                cur_ve.next_due = now + cur_ve.difficulty * SEC_PER_DAY;
-            }
-            else
-            {
-                // * incorrect answer
-                /*
-                    ! rn correct answer has no margin its either right or wrong, implement system that can evaluate
-                    ! how close u were to the real solution
-                */
-                cur_ve.difficulty > 0 ? cur_ve.difficulty-- : cur_ve.difficulty;
-                cur_ve.next_due = now + PENALTY_DELAY;
-            }
+            int distance = apply_levenshtein(answer, final_solution);
+            int lvl = calculate_level(distance, time_taken, strlen(final_solution));
+            calculate_sm2(&cur_ve, lvl);
             cur_ve.last_occurence = now;
         }
         update_vocab(&cur_ve);
@@ -111,20 +119,54 @@ void add_word(int *fd, char *buffer, int size)
         vocab_entry ve;
         memset(&ve, 0, sizeof(vocab_entry));
 
-        char *destinations[] = {ve.language, ve.german, ve.translation, ve.type, ve.gender};
-        size_t sizes[] = {sizeof(ve.language), sizeof(ve.german), sizeof(ve.translation), sizeof(ve.type), sizeof(ve.gender)};
-        int num_fields = sizeof(destinations) / sizeof(destinations[0]);
-
         char *token = strtok(buffer, "|");
-
-        for (int i = 0; i < num_fields; i++)
+        if (token == NULL)
         {
-            if (token == NULL)
-                return;
-            strncpy(destinations[i], token, sizes[i]);
-            destinations[i][sizes[i] - 1] = '\0';
-            token = strtok(NULL, "|");
+            // TODO Logging
+            return;
         }
+        strncpy(ve.language, token, sizeof(ve.language));
+        ve.language[sizeof(ve.language) - 1] = '\0';
+
+        token = strtok(NULL, "|");
+        if (token == NULL)
+        {
+            // TODO Logging
+            return;
+        }
+        strncpy(ve.front_text, token, sizeof(ve.front_text));
+        ve.front_text[sizeof(ve.front_text) - 1] = '\0';
+
+        token = strtok(NULL, "|");
+        if (token == NULL)
+        {
+            // TODO Logging
+            return;
+        }
+        strncpy(ve.back_text, token, sizeof(ve.back_text));
+        ve.back_text[sizeof(ve.back_text) - 1] = '\0';
+
+        token = strtok(NULL, "|");
+        if (token == NULL)
+        {
+            // TODO Logging
+            return;
+        }
+        char *endptr;
+        ve.entry_type = strtol(token, &endptr, 10);
+
+        token = strtok(NULL, "|");
+        if (token == NULL)
+        {
+            // TODO Logging
+            return;
+        }
+        strncpy(ve.tags, token, sizeof(ve.tags));
+        ve.tags[sizeof(ve.tags) - 1] = '\0';
+
+        ve.ease_factor = 2.5;
+        time_t now = time(NULL);
+        ve.creation_date = now;
         insert_vocab(&ve);
     }
     else if (bytes_read == 0)
@@ -177,7 +219,12 @@ void daemonize()
                 if (ret == 0)
                 {
                     // * Timer for polling is over -> prompt for next vocab
-                    check_and_prompt_vocab();
+                    PID = fork();
+                    if (PID == 0)
+                    {
+                        check_and_prompt_vocab();
+                        exit(0);
+                    }
                 }
                 else if (ret < 0)
                 {

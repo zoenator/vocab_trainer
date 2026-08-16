@@ -2,26 +2,40 @@
 #include <stdint.h>
 #include <time.h>
 
+#define SEC_PER_DAY 86400
+#define PENALTY_DELAY 60
+#define USER_LANG "DE"
+#define STD_ARRAY_SIZE 256
+#define TAG_SIZE 128
+
 typedef struct vocab_entry
 {
+        // * meta data
         uint32_t uid;
         int is_deleted;
+        time_t creation_date;
+
+        // * classification
         char language[16];
+        uint8_t entry_type;
+        char tags[TAG_SIZE];
 
-        char german[256];
-        char translation[256];
-        char example_sentence[256];
+        // * content
+        char front_text[STD_ARRAY_SIZE];
+        char back_text[STD_ARRAY_SIZE];
+        char example_sentence[STD_ARRAY_SIZE];
 
+        // * SM2 & Stats
+        unsigned int mistakes;
+        unsigned int correct_answers;
         time_t last_occurence;
         time_t next_due;
+        uint8_t repetitions;
+        float ease_factor;
+        int interval;
 
-        unsigned int mistakes;
-
-        char type[8];   // TODO implement own datatype for type
-        char gender[4]; // TODO implement own datatype for gender
-
-        int difficulty; //* calculates from average mistakes on the word
-
-        // TODO implement audiofile
+        // * media
+        char audio_file[128];
+        char image_file[128];
 
 } vocab_entry;

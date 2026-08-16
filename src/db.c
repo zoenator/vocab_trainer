@@ -3,6 +3,7 @@
 #include "vocab_entry.h"
 
 #include <stdio.h>
+#include <sys/file.h>
 
 int get_due_vocab(vocab_entry *found_entry)
 {
@@ -32,11 +33,14 @@ int get_due_vocab(vocab_entry *found_entry)
 int update_vocab(vocab_entry *entry)
 {
     FILE *f = fopen(get_storage_filepath(), "r+b");
+
     if (f == NULL)
     {
         // TODO logging
         return 1;
     }
+    flock(fileno(f), LOCK_EX);
+
     vocab_entry tmp_ve;
     while (fread(&tmp_ve, sizeof(vocab_entry), 1, f))
     {
@@ -47,6 +51,7 @@ int update_vocab(vocab_entry *entry)
         fwrite(entry, sizeof(vocab_entry), 1, f);
         break;
     }
+    flock(fileno(f), LOCK_UN);
     fclose(f);
     return 0;
 }
@@ -59,6 +64,7 @@ int insert_vocab(vocab_entry *entry)
         // TODO Logging
         return 1;
     }
+    flock(fileno(f), LOCK_EX);
 
     vocab_entry ve;
     if (fseek(f, -sizeof(vocab_entry), SEEK_END) >= 0)
@@ -72,6 +78,7 @@ int insert_vocab(vocab_entry *entry)
         entry->uid = 1;
     }
     fwrite(entry, sizeof(vocab_entry), 1, f);
+    flock(fileno(f), LOCK_UN);
     fclose(f);
     return 0;
 }
