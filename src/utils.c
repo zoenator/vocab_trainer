@@ -8,10 +8,10 @@ int parse_lueckentext(const char *input, char *display_text, char *solution, siz
     char *gap_start = strchr(input, '{');
     char *gap_end = strchr(input, '}');
 
-    if (gap_end == NULL || gap_start == NULL)
+    if (gap_end == NULL || gap_start == NULL || gap_start >= gap_end)
     {
-        strncpy(display_text, input, strlen(input));
-        display_text[strlen(input)] = '\0';
+        strncpy(display_text, input, display_size - 1);
+        display_text[display_size - 1] = '\0';
         return 1;
     }
 
@@ -21,12 +21,6 @@ int parse_lueckentext(const char *input, char *display_text, char *solution, siz
     strncpy(solution, gap_start + 1, word_len);
     solution[word_len] = '\0';
 
-    char display_start[256] = {0};
-    char display_gap[] = "___";
-
-    strncpy(display_start, input, gap_start - input);
-    display_start[gap_start - input] = '\0';
-
-    snprintf(display_text, display_size, "%s %s %s", display_start, display_gap, gap_end + 1);
+    snprintf(display_text, display_size, "%.*s ___ %s", (int)(gap_start - input), input, gap_end + 1);
     return 0;
 }

@@ -1,6 +1,6 @@
 [Unit]
     Description=VocabDaemon
-    After=graphical-session.target
+    After=default.target
 
 [Service]
     ExecStart=/usr/local/bin/VocabDaemon

@@ -1,15 +1,17 @@
-#include "eval.h"
-#include "sm2.h"
-#include "utils.h"
-#include <stddef.h>
-#include <stdint.h>
-#include <time.h>
+
 #define _XOPEN_SOURCE 700
 
 #include "db.h"
+#include "eval.h"
 #include "paths.h"
+#include "sm2.h"
 #include "ui.h"
+#include "utils.h"
 #include "vocab_entry.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <time.h>
 
 #include <fcntl.h>
 #include <poll.h>
@@ -22,6 +24,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// state
+typedef struct
+{
+        unsigned short passive_mode_state;
+        // ...
+} daemonState;
 
 // macros
 
@@ -45,7 +54,7 @@ void setup_signal_handling()
 
 // vocab logic
 
-void check_and_prompt_vocab()
+void check_and_prompt_vocab(daemonState *state)
 {
     vocab_entry cur_ve;
     if (get_due_vocab(&cur_ve))
@@ -53,6 +62,8 @@ void check_and_prompt_vocab()
         time_t now = time(NULL);
         char *language = NULL;
         char final_display[512] = {0};
+        char *origin_word = NULL;
+        char *translation = NULL;
         char final_solution[256] = {0};
         // * create bidirectinoal logic
         if (strchr(cur_ve.front_text, '{') != NULL)
@@ -68,8 +79,6 @@ void check_and_prompt_vocab()
         else
         {
             int direction = rand() % 2;
-            char *origin_word = NULL;
-            char *translation = NULL;
             if (direction == 0)
             {
                 origin_word = cur_ve.front_text;
@@ -86,22 +95,32 @@ void check_and_prompt_vocab()
             strncpy(final_solution, translation, sizeof(final_solution));
         }
 
-        char answer[128] = {0};
-        // * create command string for notification
-        ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char));
-        time_t done = time(NULL);
-        int time_taken = done - now;
-        if (answer[0] == '\0')
+        // * check state
+        if (state->passive_mode_state)
         {
+            ui_display_vocab_passive(final_display, final_solution);
             cur_ve.next_due = now + 300;
         }
         else
         {
-            answer[strcspn(answer, "\r\n")] = '\0';
-            int distance = apply_levenshtein(answer, final_solution);
-            int lvl = calculate_level(distance, time_taken, strlen(final_solution));
-            calculate_sm2(&cur_ve, lvl);
-            cur_ve.last_occurence = now;
+            char answer[128] = {0};
+            // * create command string for notification
+            ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char));
+            time_t done = time(NULL);
+            int time_taken = done - now;
+            if (answer[0] == '\0')
+            {
+                cur_ve.next_due = now + 300;
+            }
+            else
+            {
+                answer[strcspn(answer, "\r\n")] = '\0';
+                int distance = apply_levenshtein(answer, final_solution);
+                int lvl = calculate_level(distance, time_taken, strlen(final_solution));
+                ui_show_feedback(translation, distance, lvl);
+                calculate_sm2(&cur_ve, lvl);
+                cur_ve.last_occurence = now;
+            }
         }
         update_vocab(&cur_ve);
     }
@@ -109,71 +128,98 @@ void check_and_prompt_vocab()
 
 // add vocab logic
 
-void add_word(int *fd, char *buffer, int size)
+void handle_ipc_message(int *fd, char *buffer, int size, daemonState *state)
 {
 
     ssize_t bytes_read = read(*fd, buffer, size - 1);
     if (bytes_read > 0)
     {
         buffer[bytes_read] = '\0';
-        vocab_entry ve;
-        memset(&ve, 0, sizeof(vocab_entry));
-
         char *token = strtok(buffer, "|");
         if (token == NULL)
         {
             // TODO Logging
             return;
         }
-        strncpy(ve.language, token, sizeof(ve.language));
-        ve.language[sizeof(ve.language) - 1] = '\0';
-
-        token = strtok(NULL, "|");
-        if (token == NULL)
+        if (strcmp(token, "ADD") == 0)
         {
-            // TODO Logging
-            return;
-        }
-        strncpy(ve.front_text, token, sizeof(ve.front_text));
-        ve.front_text[sizeof(ve.front_text) - 1] = '\0';
+            vocab_entry ve;
+            memset(&ve, 0, sizeof(vocab_entry));
 
-        token = strtok(NULL, "|");
-        if (token == NULL)
+            token = strtok(buffer, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            strncpy(ve.language, token, sizeof(ve.language));
+            ve.language[sizeof(ve.language) - 1] = '\0';
+
+            token = strtok(NULL, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            strncpy(ve.front_text, token, sizeof(ve.front_text));
+            ve.front_text[sizeof(ve.front_text) - 1] = '\0';
+
+            token = strtok(NULL, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            strncpy(ve.back_text, token, sizeof(ve.back_text));
+            ve.back_text[sizeof(ve.back_text) - 1] = '\0';
+
+            token = strtok(NULL, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            char *endptr;
+            ve.entry_type = strtol(token, &endptr, 10);
+
+            token = strtok(NULL, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            strncpy(ve.tags, token, sizeof(ve.tags));
+            ve.tags[sizeof(ve.tags) - 1] = '\0';
+
+            ve.ease_factor = 2.5;
+            time_t now = time(NULL);
+            ve.creation_date = now;
+            insert_vocab(&ve);
+        }
+        else if (strcmp(token, "MODE") == 0)
         {
-            // TODO Logging
-            return;
+            token = strtok(NULL, "|");
+            if (token == NULL)
+            {
+                // TODO Logging
+                return;
+            }
+            if (strcmp(token, "PASSIVE") == 0)
+                state->passive_mode_state = 1;
+            else
+                state->passive_mode_state = 0;
         }
-        strncpy(ve.back_text, token, sizeof(ve.back_text));
-        ve.back_text[sizeof(ve.back_text) - 1] = '\0';
-
-        token = strtok(NULL, "|");
-        if (token == NULL)
+        else
         {
-            // TODO Logging
-            return;
+            // * Unknown command
         }
-        char *endptr;
-        ve.entry_type = strtol(token, &endptr, 10);
-
-        token = strtok(NULL, "|");
-        if (token == NULL)
-        {
-            // TODO Logging
-            return;
-        }
-        strncpy(ve.tags, token, sizeof(ve.tags));
-        ve.tags[sizeof(ve.tags) - 1] = '\0';
-
-        ve.ease_factor = 2.5;
-        time_t now = time(NULL);
-        ve.creation_date = now;
-        insert_vocab(&ve);
     }
     else if (bytes_read == 0)
     {
         close(*fd);
         *fd = open(PIPE_PATH, O_RDWR);
     }
+    return;
 }
 
 void daemonize()
@@ -211,20 +257,23 @@ void daemonize()
             struct pollfd pfd;
             pfd.fd = fd;
             pfd.events = POLLIN;
+            daemonState state = {.passive_mode_state = 1};
 
             while (keep_running)
             {
                 char buffer[256];
-                int ret = poll(&pfd, 1, 5000);
+                int ret;
+
+                if (state.passive_mode_state == 0)
+                    ret = poll(&pfd, 1, 20000);
+                else
+                    ret = poll(&pfd, 1, 120000);
+
                 if (ret == 0)
                 {
                     // * Timer for polling is over -> prompt for next vocab
-                    PID = fork();
-                    if (PID == 0)
-                    {
-                        check_and_prompt_vocab();
-                        exit(0);
-                    }
+
+                    check_and_prompt_vocab(&state);
                 }
                 else if (ret < 0)
                 {
@@ -236,7 +285,7 @@ void daemonize()
                 else
                 {
                     // * check if FIFO pipe is opened / if new word gets added
-                    add_word(&fd, buffer, sizeof(buffer));
+                    handle_ipc_message(&fd, buffer, sizeof(buffer), &state);
                 }
             }
             close(fd);

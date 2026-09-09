@@ -1,6 +1,7 @@
 #include "paths.h"
 #include "vocab_entry.h"
 #include <fcntl.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,15 +12,15 @@ int cmd_add(int argc, char **argv)
     // TODO This needs a more dynamic redesign (Here you cant type in gender without giving a tpye too which is kinda meh)
     if (argc < 5)
     {
-        printf("Usage: VocabTrainer add <lang> <origin_lang> <target_lang> [type] [gender]");
+        printf("Usage: Vocab_CLI add <lang> <front_text> <back_text> [entry_type] [tags]");
         return 1;
     }
 
-    const char *type = (argc >= 6) ? argv[5] : "0";
-    const char *gender = (argc >= 7) ? argv[6] : "0";
+    char *entry_type = (argc >= 6) ? argv[5] : "0";
+    const char *tags = (argc >= 7) ? argv[6] : "0";
 
     char msg[512];
-    snprintf(msg, sizeof(msg), "%s|%s|%s|%s|%s", argv[2], argv[3], argv[4], type, gender);
+    snprintf(msg, sizeof(msg), "ADD|%s|%s|%s|%s|%s", argv[2], argv[3], argv[4], entry_type, tags);
     int fd = open(PIPE_PATH, O_WRONLY);
     if (fd == -1)
     {
@@ -120,12 +121,33 @@ EXIT:
     return exit_status;
 }
 
+int cmd_mode(int argc, char **argv)
+{
+    if (argc < 2 || strcmp(argv[2], "PASSIVE") != 0 || strcmp(argv[2], "ACTIVE") != 0)
+    {
+        printf("Usage: VocabTrainer mode <mode> \n Modes: \n'PASSIVE'\n'ACTIVE'\n");
+        return 1;
+    }
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "MODE|%s", argv[2]);
+    int fd = open(PIPE_PATH, O_WRONLY);
+    if (fd == -1)
+    {
+        printf("Error: Pipe not found.\n");
+        return 1;
+    }
+    write(fd, msg, strlen(msg));
+    close(fd);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
 
     if (argc < 2)
     {
-        printf("Usage: vocab <command> [args]\nCommands: add, stats\n");
+        printf("Usage: Vocab_cli <command> [args]\nCommands: add, stats\n");
         return 1;
     }
 
@@ -136,6 +158,10 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "stats") == 0)
     {
         return cmd_stats(argc, argv);
+    }
+    else if (strcmp(argv[1], "mode") == 0)
+    {
+        return cmd_mode(argc, argv);
     }
     else
     {
