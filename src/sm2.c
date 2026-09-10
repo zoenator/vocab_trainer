@@ -36,3 +36,13 @@ int calculate_sm2(vocab_entry *ve, int lvl)
     ve->next_due = now + (ve->interval * SEC_PER_DAY);
     return 0;
 }
+
+int init_sm2_stats(vocab_entry *ve)
+{
+    if (ve == NULL)
+        return 1;
+
+    ve->ease_factor = BASE_EASE_FACTOR;
+    ve->repetitions = 0;
+    return 0;
+}

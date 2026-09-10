@@ -56,8 +56,12 @@ void setup_signal_handling()
 
 void check_and_prompt_vocab(daemonState *state)
 {
-    vocab_entry cur_ve;
-    if (get_due_vocab(&cur_ve))
+    vocab_entry *cur_ve;
+    size_t count;
+    vocab_entry *due_entries;
+    get_due_vocab(&due_entries, &count);
+    cur_ve = get_most_urgent_vocab(due_entries, count);
+    if (cur_ve)
     {
         time_t now = time(NULL);
         char *language = NULL;
@@ -66,29 +70,29 @@ void check_and_prompt_vocab(daemonState *state)
         char *translation = NULL;
         char final_solution[256] = {0};
         // * create bidirectinoal logic
-        if (strchr(cur_ve.front_text, '{') != NULL)
+        if (strchr(cur_ve->front_text, '{') != NULL)
         {
-            parse_lueckentext(cur_ve.front_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+            parse_lueckentext(cur_ve->front_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
             language = "de"; // UI-hint
         }
-        else if (strchr(cur_ve.back_text, '{') != NULL)
+        else if (strchr(cur_ve->back_text, '{') != NULL)
         {
-            parse_lueckentext(cur_ve.back_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
-            language = cur_ve.language; // UI-hint
+            parse_lueckentext(cur_ve->back_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+            language = cur_ve->language; // UI-hint
         }
         else
         {
             int direction = rand() % 2;
             if (direction == 0)
             {
-                origin_word = cur_ve.front_text;
-                translation = cur_ve.back_text;
-                language = cur_ve.language;
+                origin_word = cur_ve->front_text;
+                translation = cur_ve->back_text;
+                language = cur_ve->language;
             }
             else
             {
-                origin_word = cur_ve.back_text;
-                translation = cur_ve.front_text;
+                origin_word = cur_ve->back_text;
+                translation = cur_ve->front_text;
                 language = USER_LANG;
             }
             strncpy(final_display, origin_word, sizeof(final_display));
@@ -99,7 +103,7 @@ void check_and_prompt_vocab(daemonState *state)
         if (state->passive_mode_state)
         {
             ui_display_vocab_passive(final_display, final_solution);
-            cur_ve.next_due = now + 300;
+            cur_ve->next_due = now + 300;
         }
         else
         {
@@ -110,7 +114,7 @@ void check_and_prompt_vocab(daemonState *state)
             int time_taken = done - now;
             if (answer[0] == '\0')
             {
-                cur_ve.next_due = now + 300;
+                cur_ve->next_due = now + 300;
             }
             else
             {
@@ -118,12 +122,13 @@ void check_and_prompt_vocab(daemonState *state)
                 int distance = apply_levenshtein(answer, final_solution);
                 int lvl = calculate_level(distance, time_taken, strlen(final_solution));
                 ui_show_feedback(translation, distance, lvl);
-                calculate_sm2(&cur_ve, lvl);
-                cur_ve.last_occurence = now;
+                calculate_sm2(cur_ve, lvl);
+                cur_ve->last_occurence = now;
             }
         }
-        update_vocab(&cur_ve);
+        update_vocab(cur_ve);
     }
+    free(due_entries);
 }
 
 // add vocab logic
@@ -141,62 +146,7 @@ void handle_ipc_message(int *fd, char *buffer, int size, daemonState *state)
             // TODO Logging
             return;
         }
-        if (strcmp(token, "ADD") == 0)
-        {
-            vocab_entry ve;
-            memset(&ve, 0, sizeof(vocab_entry));
-
-            token = strtok(buffer, "|");
-            if (token == NULL)
-            {
-                // TODO Logging
-                return;
-            }
-            strncpy(ve.language, token, sizeof(ve.language));
-            ve.language[sizeof(ve.language) - 1] = '\0';
-
-            token = strtok(NULL, "|");
-            if (token == NULL)
-            {
-                // TODO Logging
-                return;
-            }
-            strncpy(ve.front_text, token, sizeof(ve.front_text));
-            ve.front_text[sizeof(ve.front_text) - 1] = '\0';
-
-            token = strtok(NULL, "|");
-            if (token == NULL)
-            {
-                // TODO Logging
-                return;
-            }
-            strncpy(ve.back_text, token, sizeof(ve.back_text));
-            ve.back_text[sizeof(ve.back_text) - 1] = '\0';
-
-            token = strtok(NULL, "|");
-            if (token == NULL)
-            {
-                // TODO Logging
-                return;
-            }
-            char *endptr;
-            ve.entry_type = strtol(token, &endptr, 10);
-
-            token = strtok(NULL, "|");
-            if (token == NULL)
-            {
-                // TODO Logging
-                return;
-            }
-            strncpy(ve.tags, token, sizeof(ve.tags));
-            ve.tags[sizeof(ve.tags) - 1] = '\0';
-
-            ve.ease_factor = 2.5;
-            time_t now = time(NULL);
-            ve.creation_date = now;
-            insert_vocab(&ve);
-        }
-        else if (strcmp(token, "MODE") == 0)
+        if (strcmp(token, "MODE") == 0)
         {
             token = strtok(NULL, "|");
             if (token == NULL)

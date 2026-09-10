@@ -51,3 +51,19 @@ int calculate_level(int levenshtein_distance, unsigned int time_taken_seconds, u
     level = level - (error_quota / 20) - time_penalty;
     return (level >= 0 ? level : 0);
 }
+
+vocab_entry *get_most_urgent_vocab(vocab_entry *entries, size_t count)
+{
+    if (count == 0 || entries == NULL)
+        return NULL;
+
+    vocab_entry *urgent = entries;
+
+    for (int i = 1; i < count; i++)
+    {
+        if (entries[i].next_due <= urgent->next_due)
+            urgent = &entries[i];
+    }
+
+    return urgent;
+}

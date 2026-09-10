@@ -14,6 +14,8 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 add_executable(Vocab_cli 
     src/vocab_cli.c 
     src/paths.c
+    src/db.c
+    src/sm2.c
 )
 
 add_executable(VocabDaemon 

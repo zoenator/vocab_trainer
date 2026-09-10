@@ -4,15 +4,35 @@
 #include <string.h>
 #include <unistd.h>
 
+static int s_last_passive_id = 0;
+
 void ui_display_vocab_passive(char *front_text, char *back_text)
 {
-    char text[512];
-    snprintf(text, sizeof(text), "%s | %s", front_text, back_text);
-    if (fork() == 0)
+    char cmd[512];
+    char del_cmd[256];
+    if (s_last_passive_id > 0)
     {
-        execlp("notify-send", "notify-send", "-t", "10000", "-h", "int:transient:1", "Vocab Trainer", text, NULL);
-        exit(1);
+        snprintf(del_cmd,
+                 sizeof(del_cmd),
+                 "busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications org.freedesktop.Notifications "
+                 "CloseNotification u %d",
+                 s_last_passive_id);
+
+        system(del_cmd);
     }
+    snprintf(cmd, sizeof(cmd), "notify-send  -t 10000 -p 'Vocab Trainer' '%s | %s'", front_text, back_text);
+
+    char output[32] = {0};
+    char *endptr = NULL;
+    FILE *fp = popen(cmd, "r");
+    if (fp == NULL)
+    {
+        // TODO Logging
+        return;
+    }
+    fgets(output, sizeof(output), fp);
+    s_last_passive_id = strtol(output, &endptr, 10);
+    pclose(fp);
     return;
 }
 
