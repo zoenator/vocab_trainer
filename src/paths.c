@@ -1,4 +1,5 @@
 #include "paths.h"
+#include "utils.h"
 
 #include <errno.h>
 #include <linux/limits.h>
@@ -29,7 +30,7 @@ static int create_needed_directories(const char *filepath)
     char *dirpath = calloc(strlen(filepath) + 1, sizeof(char));
     if (dirpath == NULL)
     {
-        fprintf(stderr, "Error: Memory allocation failed.\n");
+        PRINT_ERR("Memory allocation failed");
         exit(EXIT_FAILURE);
     }
     snprintf(dirpath, strlen(filepath) + 1, "%s", filepath);
@@ -42,7 +43,7 @@ static int create_needed_directories(const char *filepath)
             *p = '\0';
             if (mkdir(dirpath, 0755) != 0 && errno != EEXIST) // create directory if it doesn't exist
             {
-                fprintf(stderr, "Error: Could not create directory path for %s\n", filepath); // error
+                PRINT_USR_ERR("Error: Could not create directory path for %s", filepath); // error
                 free(dirpath);
                 return -1;
             }
@@ -51,7 +52,7 @@ static int create_needed_directories(const char *filepath)
     }
     if (mkdir(dirpath, 0755) != 0 && errno != EEXIST)
     {
-        fprintf(stderr, "Error: Could not create directory path for %s\n", filepath);
+        PRINT_USR_ERR("Error: Could not create directory path for %s", filepath);
         free(dirpath);
         return -1;
     }
@@ -60,20 +61,19 @@ static int create_needed_directories(const char *filepath)
 }
 
 // Initializes config and storage file paths based on HOME env variable if not already done
-static void initialize_paths()
+static int initialize_paths()
 {
     const char dotconfig[] = "/.config/vocab_trainer";
     const char dotlocal[] = "/.local/share/vocab_trainer";
     if (paths_initialized)
-        return; // already initialized
-
-    atexit(free_filepaths);
+        return 0; // already initialized
 
     const char *home_dir = getenv("HOME");
     if (home_dir == NULL)
     {
-        fprintf(stderr, "Error: HOME environment variable not set.\n");
-        exit(EXIT_FAILURE);
+        PRINT_USR_ERR("Error: HOME environment variable not set");
+        free_filepaths();
+        return 1;
     }
 
     // Config path
@@ -81,8 +81,9 @@ static void initialize_paths()
     char *config_dir = calloc(config_dir_len, sizeof(char));
     if (config_dir == NULL)
     {
-        fprintf(stderr, "Error: Memory allocation failed.\n");
-        exit(EXIT_FAILURE);
+        PRINT_ERR("Memory allocation failed");
+        free_filepaths();
+        return 1;
     }
     snprintf(config_dir, config_dir_len, "%s%s", home_dir, dotconfig);
     if (create_needed_directories(config_dir) == 0)
@@ -91,15 +92,17 @@ static void initialize_paths()
         size_t len = strlen(config_dir) + strlen(filename) + 1;
         if (len > PATH_MAX)
         {
-            fprintf(stderr, "Error: Config file path (%zu) exceeds PATH_MAX (%d).\n", len, PATH_MAX);
-            exit(EXIT_FAILURE);
+            PRINT_USR_ERR("Error: Storage file path (%zu) exceeds PATH_MAX (%d).", len, PATH_MAX);
+            free_filepaths();
+            return 1;
         }
 
         config_filepath = calloc(len, sizeof(char));
         if (config_filepath == NULL)
         {
-            fprintf(stderr, "Error: Memory allocation failed.\n");
-            exit(EXIT_FAILURE);
+            PRINT_ERR("Memory allocation failed");
+            free_filepaths();
+            return 1;
         }
         snprintf(config_filepath, len, "%s%s", config_dir, filename);
     }
@@ -109,8 +112,9 @@ static void initialize_paths()
     char *storage_dir = calloc(storage_dir_len, sizeof(char));
     if (storage_dir == NULL)
     {
-        fprintf(stderr, "Error: Memory allocation failed.\n");
-        exit(EXIT_FAILURE);
+        PRINT_ERR("Memory allocation failed");
+        free_filepaths();
+        return 1;
     }
     snprintf(storage_dir, storage_dir_len, "%s%s", home_dir, dotlocal);
     if (create_needed_directories(storage_dir) == 0)
@@ -120,15 +124,17 @@ static void initialize_paths()
 
         if (len > PATH_MAX)
         {
-            fprintf(stderr, "Error: Storage file path (%zu) exceeds PATH_MAX (%d).\n", len, PATH_MAX);
-            exit(EXIT_FAILURE);
+            PRINT_USR_ERR("Error: Storage file path (%zu) exceeds PATH_MAX (%d).", len, PATH_MAX);
+            free_filepaths();
+            return 1;
         }
 
         storage_filepath = calloc(len, sizeof(char));
         if (storage_filepath == NULL)
         {
-            fprintf(stderr, "Error: Memory allocation failed.\n");
-            exit(EXIT_FAILURE);
+            PRINT_ERR("Memory allocation failed");
+            free_filepaths();
+            return 1;
         }
         snprintf(storage_filepath, len, "%s%s", storage_dir, filename);
     }
@@ -136,16 +142,20 @@ static void initialize_paths()
     free(config_dir);
 
     paths_initialized = 1;
+    atexit(free_filepaths);
+    return 0;
 }
 
 const char *get_storage_filepath()
 {
-    initialize_paths();
+    if (initialize_paths() == 1)
+        return NULL;
     return storage_filepath;
 }
 
 const char *get_config_filepath()
 {
-    initialize_paths();
+    if (initialize_paths() == 1)
+        return NULL;
     return config_filepath;
 }

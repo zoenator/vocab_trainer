@@ -1,12 +1,15 @@
 #include "db.h"
 #include "paths.h"
 #include "sm2.h"
+#include "utils.h"
 #include "vocab_entry.h"
+
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 #include <unistd.h>
 
 int cmd_add(int argc, char **argv)
@@ -16,7 +19,7 @@ int cmd_add(int argc, char **argv)
     if (argc < 5)
     {
         printf("Usage: Vocab_CLI add <lang> <front_text> <back_text> [entry_type] [tags]");
-        return 1;
+        return EX_USAGE;
     }
 
     char *entry_type = (argc >= 6) ? argv[5] : "0";
@@ -57,7 +60,12 @@ int cmd_add(int argc, char **argv)
     time_t now = time(NULL);
     ve.creation_date = now;
 
-    insert_vocab(&ve);
+    int error = insert_vocab(&ve);
+    if (error)
+    {
+        PRINT_USR_ERR("Inserting vocab didn't work");
+        return EX_OSERR;
+    }
     return 0;
 }
 
@@ -70,10 +78,10 @@ int cmd_stats(int argc, char **argv)
     size_t count = 0;
 
     exit_status = get_all_vocabs(&entries, &count);
-    if (exit_status != 0)
+    if (exit_status == -1)
     {
-        fprintf(stderr, "Error getting vocabs\n");
-        return exit_status;
+        PRINT_USR_ERR("Error getting vocabs");
+        return EX_OSERR;
     }
 
     // stat variables
@@ -84,8 +92,8 @@ int cmd_stats(int argc, char **argv)
     int capacity = 2;
     if (languages == NULL)
     {
-        printf("alloc error..\n");
-        return 1;
+        PRINT_ERR("Allocation error");
+        return EX_OSERR;
     }
 
     for (size_t i = 0; i < count; i++)
@@ -112,7 +120,7 @@ int cmd_stats(int argc, char **argv)
                 if (tmp == NULL)
                 {
                     printf("realloc error\n");
-                    exit_status = 1;
+                    exit_status = EX_OSERR;
                     goto EXIT;
                 }
                 different_languages = tmp;
@@ -120,8 +128,8 @@ int cmd_stats(int argc, char **argv)
                 tmp = realloc(languages, sizeof(char *) * capacity * 2);
                 if (tmp == NULL)
                 {
-                    printf("realloc error\n");
-                    exit_status = 1;
+                    PRINT_ERR("Allocation error");
+                    exit_status = EX_OSERR;
                     goto EXIT;
                 }
                 languages = tmp;
@@ -156,10 +164,10 @@ EXIT:
 
 int cmd_mode(int argc, char **argv)
 {
-    if (argc < 2 || strcmp(argv[2], "PASSIVE") != 0 && strcmp(argv[2], "ACTIVE") != 0)
+    if (argc <= 2 || strcmp(argv[2], "PASSIVE") != 0 && strcmp(argv[2], "ACTIVE") != 0)
     {
         printf("Usage: VocabTrainer mode <mode> \n Modes: \n'PASSIVE'\n'ACTIVE'\n");
-        return 1;
+        return EX_USAGE;
     }
 
     char msg[128];
@@ -167,11 +175,23 @@ int cmd_mode(int argc, char **argv)
     int fd = open(PIPE_PATH, O_WRONLY);
     if (fd == -1)
     {
-        printf("Error: Pipe not found.\n");
-        return 1;
+        PRINT_ERR("Error: Pipe not found");
+        return EX_UNAVAILABLE;
     }
-    write(fd, msg, strlen(msg));
-    close(fd);
+    int bytes_read = write(fd, msg, strlen(msg));
+    if (bytes_read == -1)
+    {
+        PRINT_ERR("Failed to write to pipe");
+        if (close(fd) == -1)
+        {
+            PRINT_ERR("Failed to close file descriptor");
+        }
+        return EX_UNAVAILABLE;
+    }
+    if (close(fd) == -1)
+    {
+        PRINT_ERR("Failed to close file descriptor");
+    }
     return 0;
 }
 
@@ -180,7 +200,15 @@ int cmd_list(int argc, char **argv)
     // TODO argc/argv might be used for filtering in the future
     vocab_entry *entries;
     size_t count = 0;
-    int exit_status = get_all_vocabs(&entries, &count);
+    int exit_status = 0;
+    exit_status = get_all_vocabs(&entries, &count);
+    if (exit_status == -1)
+    {
+        free(entries);
+        PRINT_ERR("Getting vocabs failed");
+        exit_status = EX_OSERR;
+        return exit_status;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
@@ -190,11 +218,6 @@ int cmd_list(int argc, char **argv)
         printf("[%d]: %s -> %s\n", entries[i].uid, entries[i].front_text, entries[i].back_text);
     }
 
-    if (exit_status != -1)
-    {
-        free(entries);
-        // TODO Logging
-    }
     return exit_status;
 }
 
@@ -207,31 +230,39 @@ int cmd_delete(int argc, char **argv)
     long uid = strtol(argv[2], &endptr, 10);
     if (argv[2] == endptr)
     {
-        // TODO Logging
-        printf("No valid number!\n");
-        return 1;
+        PRINT_USR_ERR("No valid number!");
+        return EX_DATAERR;
     }
 
     vocab_entry *entries;
     size_t count = 0;
-    int exit_status = get_all_vocabs(&entries, &count);
+    int exit_status = 0;
+    exit_status = get_all_vocabs(&entries, &count);
+    if (exit_status == -1)
+    {
+        free(entries);
+        PRINT_ERR("Getting vocabs failed");
+        exit_status = EX_OSERR;
+        return exit_status;
+    }
 
     for (size_t i = 0; i < count; i++)
     {
         if (entries[i].uid == uid)
         {
             entries[i].is_deleted = 1;
-            update_vocab(&(entries[i]));
-            printf("Entry %u deleted. (%s -> %s)\n", entries[i].uid, entries[i].front_text, entries[i].back_text);
+            int error = update_vocab(&(entries[i]));
+            if (error != 0)
+            {
+                PRINT_ERR("Updateing vocab failed");
+                exit_status = EX_OSERR;
+            }
+            else
+                printf("Entry %u deleted. (%s -> %s)\n", entries[i].uid, entries[i].front_text, entries[i].back_text);
             break;
         }
     }
 
-    if (exit_status != -1)
-    {
-        free(entries);
-        // TODO Logging
-    }
     return exit_status;
 }
 
@@ -263,7 +294,7 @@ int main(int argc, char **argv)
     else
     {
         printf("Unknown command: %s\n", argv[1]);
-        return 1;
+        return EX_USAGE;
     }
 
     return 0;

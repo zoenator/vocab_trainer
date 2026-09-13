@@ -1,9 +1,11 @@
 #include "db.h"
 #include "paths.h"
+#include "utils.h"
 #include "vocab_entry.h"
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/file.h>
 
 int get_due_vocab(vocab_entry **found_entries, size_t *count)
@@ -17,12 +19,12 @@ int get_due_vocab(vocab_entry **found_entries, size_t *count)
     *found_entries = malloc(capacity * sizeof(vocab_entry));
     if (*found_entries == NULL)
     {
-        // * alloc error
+        PRINT_ERR("Allocation Error");
         return -1;
     }
     if (fvoc == NULL)
     {
-        // TODO Logging
+        PRINT_ERR("Failed to open database");
         return -1;
     }
     vocab_entry ve;
@@ -40,6 +42,7 @@ int get_due_vocab(vocab_entry **found_entries, size_t *count)
             vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
             if (tmp == NULL)
             {
+                PRINT_ERR("Allocation error");
                 free(*found_entries);
                 return -1;
             }
@@ -61,12 +64,12 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
     *found_entries = malloc(capacity * sizeof(vocab_entry));
     if (*found_entries == NULL)
     {
-        // * alloc error
+        PRINT_ERR("Allocation error");
         return -1;
     }
     if (fvoc == NULL)
     {
-        // TODO Logging
+        PRINT_ERR("Failed to open database");
         free(*found_entries);
         return -1;
     }
@@ -82,6 +85,7 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
             vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
             if (tmp == NULL)
             {
+                PRINT_ERR("Allocation error");
                 free(*found_entries);
                 return -1;
             }
@@ -94,12 +98,14 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
 
 int update_vocab(vocab_entry *entry)
 {
+    int exit_status = 0;
     FILE *f = fopen(get_storage_filepath(), "r+b");
 
     if (f == NULL)
     {
-        // TODO logging
-        return 1;
+        PRINT_ERR("Failed to open database");
+        exit_status = 1;
+        return exit_status;
     }
     flock(fileno(f), LOCK_EX);
 
@@ -110,12 +116,17 @@ int update_vocab(vocab_entry *entry)
             continue;
 
         fseek(f, -sizeof(vocab_entry), SEEK_CUR);
-        fwrite(entry, sizeof(vocab_entry), 1, f);
+        int written = fwrite(entry, sizeof(vocab_entry), 1, f);
+        if (written != 1)
+        {
+            PRINT_ERR("Error writing to file");
+            exit_status = 1;
+        }
         break;
     }
     flock(fileno(f), LOCK_UN);
     fclose(f);
-    return 0;
+    return exit_status;
 }
 
 int insert_vocab(vocab_entry *entry)
@@ -123,7 +134,7 @@ int insert_vocab(vocab_entry *entry)
     FILE *f = fopen(get_storage_filepath(), "a+b");
     if (f == NULL)
     {
-        // TODO Logging
+        PRINT_ERR("Failed to open database");
         return 1;
     }
     flock(fileno(f), LOCK_EX);
@@ -139,7 +150,10 @@ int insert_vocab(vocab_entry *entry)
         rewind(f);
         entry->uid = 1;
     }
-    fwrite(entry, sizeof(vocab_entry), 1, f);
+    int written = fwrite(entry, sizeof(vocab_entry), 1, f);
+    if (written != 1)
+        PRINT_ERR("Error writing to file");
+
     flock(fileno(f), LOCK_UN);
     fclose(f);
     return 0;

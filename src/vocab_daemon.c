@@ -1,4 +1,3 @@
-
 #define _XOPEN_SOURCE 700
 
 #include "db.h"
@@ -23,6 +22,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <sysexits.h>
 #include <unistd.h>
 
 // state
@@ -48,8 +48,17 @@ void setup_signal_handling()
     sa.sa_handler = handle_sigterm;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;
-    sigaction(SIGTERM, &sa, NULL);
+    if (sigaction(SIGTERM, &sa, NULL) == -1)
+    {
+        PRINT_ERR("Error setting up signalhandler");
+        _exit(EX_OSERR);
+    }
     signal(SIGCHLD, SIG_IGN);
+    if (signal(SIGCHLD, SIG_IGN) == SIG_ERR)
+    {
+        PRINT_ERR("Error setting up signalhandler");
+        _exit(EX_OSERR);
+    }
 }
 
 // vocab logic
@@ -59,7 +68,13 @@ void check_and_prompt_vocab(daemonState *state)
     vocab_entry *cur_ve;
     size_t count;
     vocab_entry *due_entries;
-    get_due_vocab(&due_entries, &count);
+    int error = 0;
+    error = get_due_vocab(&due_entries, &count);
+    if (error == -1)
+    {
+        PRINT_USR_ERR("Error getting vocab");
+        return;
+    }
     cur_ve = get_most_urgent_vocab(due_entries, count);
     if (cur_ve)
     {
@@ -102,14 +117,20 @@ void check_and_prompt_vocab(daemonState *state)
         // * check state
         if (state->passive_mode_state)
         {
-            ui_display_vocab_passive(final_display, final_solution);
+            if (ui_display_vocab_passive(final_display, final_solution) == 1)
+            {
+                PRINT_USR_ERR("Error displaying vocab");
+            }
             cur_ve->next_due = now + 300;
         }
         else
         {
             char answer[128] = {0};
             // * create command string for notification
-            ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char));
+            if (ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char)) == 1)
+            {
+                PRINT_USR_ERR("Error prompting vocab");
+            }
             time_t done = time(NULL);
             int time_taken = done - now;
             if (answer[0] == '\0')
@@ -166,13 +187,20 @@ void handle_ipc_message(int *fd, char *buffer, int size, daemonState *state)
     }
     else if (bytes_read == 0)
     {
-        close(*fd);
+        if (close(*fd) == -1)
+        {
+            PRINT_ERR("Closing fd failed");
+        }
         *fd = open(PIPE_PATH, O_RDWR);
+        if (*fd == -1)
+        {
+            PRINT_ERR("Failed opening pipe");
+        }
     }
     return;
 }
 
-void daemonize()
+int daemonize()
 {
     pid_t PID, w;
     int status;
@@ -184,25 +212,68 @@ void daemonize()
     {
         // *  child gets own session ID
         PID = setsid();
+        if (PID == -1)
+        {
+            PRINT_ERR("Session id couldn't be set");
+            return EX_OSERR;
+        }
         // * fork again
         PID = fork();
 
         if (PID == 0)
         {
             // * switch to root dir and bend stdin/out/err to the void
-            chdir("/");
+            if (chdir("/") == -1)
+            {
+                PRINT_ERR("Changing to root dir failed");
+                return EX_OSERR;
+            }
+
             int null_fd = open("/dev/null", O_RDWR);
-            dup2(null_fd, STDIN_FILENO);
-            dup2(null_fd, STDOUT_FILENO);
-            dup2(null_fd, STDERR_FILENO);
-            close(null_fd);
+            if (null_fd == -1)
+            {
+                PRINT_ERR("Setting null_fd failed");
+                return EX_OSERR;
+            }
+
+            if (dup2(null_fd, STDIN_FILENO) == -1)
+            {
+                PRINT_ERR("Redirecting STDIN failed");
+                return EX_OSERR;
+            }
+
+            if (dup2(null_fd, STDOUT_FILENO) == -1)
+            {
+                PRINT_ERR("Redirecting STDOUT failed");
+                return EX_OSERR;
+            }
+
+            if (dup2(null_fd, STDERR_FILENO) == -1)
+            {
+                PRINT_ERR("Redirecting STDERR failed");
+                return EX_OSERR;
+            }
+
+            if (close(null_fd) == -1)
+            {
+                PRINT_ERR("Closing null_fd failed");
+                return EX_OSERR;
+            }
             umask(0); // new created files/dirs wont be masked
             // * create Pipe
-            mkfifo(PIPE_PATH, 0666);
+            if (mkfifo(PIPE_PATH, 0666) == -1)
+            {
+                PRINT_ERR("Pipe creation failed");
+                return EX_UNAVAILABLE;
+            }
 
             // * open pipe in readonly
             int fd = open(PIPE_PATH, O_RDWR);
-
+            if (fd == -1)
+            {
+                PRINT_ERR("Pipe didn't open");
+                return EX_UNAVAILABLE;
+            }
             // * create polling struct
             struct pollfd pfd;
             pfd.fd = fd;
@@ -227,10 +298,9 @@ void daemonize()
                 }
                 else if (ret < 0)
                 {
-                    /*
-                        * Error -> do nothing for now
-                        TODO Implement logging
-                    */
+
+                    // Error -> do nothing for now
+                    PRINT_USR_ERR("Polling error");
                 }
                 else
                 {
@@ -248,7 +318,7 @@ void daemonize()
         }
         else
         {
-            perror("Error creating child");
+            PRINT_ERR("Error creating child");
         }
     }
     else if (PID > 0)
@@ -258,15 +328,17 @@ void daemonize()
     }
     else
     {
-        perror("ERROR creating child..");
+        PRINT_ERR("Error creating child");
     }
+    return 0;
 }
 
 int main(int argc, char **argv)
 {
+    int exit_status = 0;
     srand(time(NULL));
     setup_signal_handling();
-    daemonize();
+    exit_status = daemonize();
 
-    return 0;
+    return exit_status;
 }

@@ -1,12 +1,14 @@
 #include "ui.h"
+#include "utils.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 static int s_last_passive_id = 0;
 
-void ui_display_vocab_passive(char *front_text, char *back_text)
+int ui_display_vocab_passive(char *front_text, char *back_text)
 {
     char cmd[512];
     char del_cmd[256];
@@ -27,16 +29,22 @@ void ui_display_vocab_passive(char *front_text, char *back_text)
     FILE *fp = popen(cmd, "r");
     if (fp == NULL)
     {
-        // TODO Logging
-        return;
+        PRINT_ERR("Failed to run cmd");
+        return 1;
     }
     fgets(output, sizeof(output), fp);
     s_last_passive_id = strtol(output, &endptr, 10);
+    if (endptr == output)
+    {
+        PRINT_USR_ERR("Error reading last notification id");
+        pclose(fp);
+        return 1;
+    }
     pclose(fp);
-    return;
+    return 0;
 }
 
-void ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, size_t answer_size)
+int ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, size_t answer_size)
 {
     char cmd[512];
     snprintf(
@@ -44,6 +52,12 @@ void ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, 
 
     char action[64] = {0};
     FILE *fp = popen(cmd, "r");
+    if (fp == NULL)
+    {
+        PRINT_ERR("Failed to run cmd");
+        return 1;
+    }
+
     fgets(action, sizeof(action), fp);
     pclose(fp);
     if (strncmp(action, "default", strlen("default")) == 0)
@@ -51,6 +65,12 @@ void ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, 
         // * create command string for zenity prompt
         snprintf(cmd, sizeof(cmd), "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'", origin_word, language);
         FILE *fp = popen(cmd, "r");
+        if (fp == NULL)
+        {
+            PRINT_ERR("Failed to run cmd");
+            return 1;
+        }
+
         char answer[128];
         fgets(answer, sizeof(answer), fp);
         pclose(fp);
@@ -61,9 +81,10 @@ void ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, 
     {
         answer_cmd[0] = '\0';
     }
+    return 0;
 }
 
-void ui_show_feedback(const char *correct_word, int distance, int level)
+int ui_show_feedback(const char *correct_word, int distance, int level)
 {
     const char *icon;
     const char *urgency;
@@ -94,10 +115,19 @@ void ui_show_feedback(const char *correct_word, int distance, int level)
         break;
     }
 
-    if (fork() == 0)
+    pid_t pid = fork();
+    if (pid == 0)
     {
-        execlp("notify-send", "notify-send", "-u", urgency, "-i", icon, "Rating", text, NULL);
-        exit(1);
+        int error = 0;
+        error = execlp("notify-send", "notify-send", "-u", urgency, "-i", icon, "Rating", text, NULL);
+        if (error == -1)
+            PRINT_ERR("Execlp failed");
+        _exit(1);
     }
-    return;
+    else if (pid < 0)
+    {
+        PRINT_ERR("Fork failed");
+        return 1;
+    }
+    return 0;
 }
