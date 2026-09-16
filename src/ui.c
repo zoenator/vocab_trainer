@@ -3,10 +3,30 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sysexits.h>
 #include <time.h>
 #include <unistd.h>
 
 static int s_last_passive_id = 0;
+
+int ui_play_audio(const char *lang_code, const char *text)
+{
+    pid_t pid = fork();
+    if (pid == 0)
+    {
+        execlp("espeak", "espeak", "-v", lang_code, text, NULL);
+        _exit(EX_UNAVAILABLE);
+    }
+    else if (pid > 0)
+    {
+        return 0;
+    }
+    else
+    {
+        PRINT_ERR("Creating child failed");
+        return -1;
+    }
+}
 
 int ui_display_vocab_passive(char *front_text, char *back_text)
 {
@@ -44,7 +64,7 @@ int ui_display_vocab_passive(char *front_text, char *back_text)
     return 0;
 }
 
-int ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, size_t answer_size)
+int ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, size_t answer_size, int show_audio)
 {
     char cmd[512];
     snprintf(
@@ -63,19 +83,44 @@ int ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, s
     if (strncmp(action, "default", strlen("default")) == 0)
     {
         // * create command string for zenity prompt
-        snprintf(cmd, sizeof(cmd), "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'", origin_word, language);
-        FILE *fp = popen(cmd, "r");
-        if (fp == NULL)
+        while (1)
         {
-            PRINT_ERR("Failed to run cmd");
-            return 1;
-        }
+            if (show_audio)
+            {
+                snprintf(cmd,
+                         sizeof(cmd),
+                         "zenity --entry --title='Vocab Trainer' --extra-button='🔊' --text='Was heißt %s auf %s?'",
+                         origin_word,
+                         language);
+            }
+            else
+            {
+                {
+                    snprintf(
+                        cmd, sizeof(cmd), "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'", origin_word, language);
+                }
+            }
+            FILE *fp = popen(cmd, "r");
+            if (fp == NULL)
+            {
+                PRINT_ERR("Failed to run cmd");
+                return 1;
+            }
 
-        char answer[128];
-        fgets(answer, sizeof(answer), fp);
-        pclose(fp);
-        answer[strcspn(answer, "\r\n")] = '\0';
-        strcpy(answer_cmd, answer);
+            char answer[128];
+            fgets(answer, sizeof(answer), fp);
+            if (strcmp(answer, "🔊\n") == 0)
+            {
+                int error = 0;
+                error = ui_play_audio(language, origin_word);
+                pclose(fp);
+                continue;
+            }
+            pclose(fp);
+            answer[strcspn(answer, "\r\n")] = '\0';
+            strcpy(answer_cmd, answer);
+            break;
+        }
     }
     else
     {

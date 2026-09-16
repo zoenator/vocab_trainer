@@ -78,6 +78,7 @@ void check_and_prompt_vocab(daemonState *state)
     cur_ve = get_most_urgent_vocab(due_entries, count);
     if (cur_ve)
     {
+        int direction = 0;
         time_t now = time(NULL);
         char *language = NULL;
         char final_display[512] = {0};
@@ -97,7 +98,7 @@ void check_and_prompt_vocab(daemonState *state)
         }
         else
         {
-            int direction = rand() % 2;
+            direction = rand() % 2;
             if (direction == 0)
             {
                 origin_word = cur_ve->front_text;
@@ -127,10 +128,11 @@ void check_and_prompt_vocab(daemonState *state)
         {
             char answer[128] = {0};
             // * create command string for notification
-            if (ui_prompt_translation(final_display, language, answer, sizeof(answer) / sizeof(char)) == 1)
+            if (ui_prompt_translation(final_display, language, answer, sizeof(answer), direction == 0))
             {
                 PRINT_USR_ERR("Error prompting vocab");
             }
+
             time_t done = time(NULL);
             int time_taken = done - now;
             if (answer[0] == '\0')
@@ -139,6 +141,9 @@ void check_and_prompt_vocab(daemonState *state)
             }
             else
             {
+                int error = ui_play_audio(cur_ve->language, cur_ve->front_text);
+                if (error)
+                    PRINT_USR_ERR("Error playing audio");
                 answer[strcspn(answer, "\r\n")] = '\0';
                 int distance = apply_levenshtein(answer, final_solution);
                 int lvl = calculate_level(distance, time_taken, strlen(final_solution));

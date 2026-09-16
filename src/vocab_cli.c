@@ -291,6 +291,10 @@ int main(int argc, char **argv)
     {
         return cmd_list(argc, argv);
     }
+    else if (strcmp(argv[1], "delete") == 0)
+    {
+        return cmd_delete(argc, argv);
+    }
     else
     {
         printf("Unknown command: %s\n", argv[1]);

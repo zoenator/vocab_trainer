@@ -30,7 +30,7 @@ int get_due_vocab(vocab_entry **found_entries, size_t *count)
     vocab_entry ve;
     while (fread(&ve, sizeof(vocab_entry), 1, fvoc))
     {
-        if (ve.next_due <= now)
+        if (ve.next_due <= now && !(ve.is_deleted))
         {
             (*found_entries)[*count] = ve;
             vocab_found = 1;
