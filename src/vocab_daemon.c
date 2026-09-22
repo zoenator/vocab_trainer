@@ -76,84 +76,87 @@ void check_and_prompt_vocab(daemonState *state)
         return;
     }
     cur_ve = get_most_urgent_vocab(due_entries, count);
-    if (cur_ve)
+    if (!cur_ve)
     {
-        int direction = 0;
-        time_t now = time(NULL);
-        char *language = NULL;
-        char final_display[512] = {0};
-        char *origin_word = NULL;
-        char *translation = NULL;
-        char final_solution[256] = {0};
-        // * create bidirectinoal logic
-        if (strchr(cur_ve->front_text, '{') != NULL)
-        {
-            parse_lueckentext(cur_ve->front_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
-            language = "de"; // UI-hint
-        }
-        else if (strchr(cur_ve->back_text, '{') != NULL)
-        {
-            parse_lueckentext(cur_ve->back_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
-            language = cur_ve->language; // UI-hint
-        }
-        else
-        {
-            direction = rand() % 2;
-            if (direction == 0)
-            {
-                origin_word = cur_ve->front_text;
-                translation = cur_ve->back_text;
-                language = cur_ve->language;
-            }
-            else
-            {
-                origin_word = cur_ve->back_text;
-                translation = cur_ve->front_text;
-                language = USER_LANG;
-            }
-            strncpy(final_display, origin_word, sizeof(final_display));
-            strncpy(final_solution, translation, sizeof(final_solution));
-        }
-
-        // * check state
-        if (state->passive_mode_state)
-        {
-            if (ui_display_vocab_passive(final_display, final_solution) == 1)
-            {
-                PRINT_USR_ERR("Error displaying vocab");
-            }
-            cur_ve->next_due = now + 300;
-        }
-        else
-        {
-            char answer[128] = {0};
-            // * create command string for notification
-            if (ui_prompt_translation(final_display, language, answer, sizeof(answer), direction == 0))
-            {
-                PRINT_USR_ERR("Error prompting vocab");
-            }
-
-            time_t done = time(NULL);
-            int time_taken = done - now;
-            if (answer[0] == '\0')
-            {
-                cur_ve->next_due = now + 300;
-            }
-            else
-            {
-                int error = ui_play_audio(cur_ve->language, cur_ve->front_text);
-                if (error)
-                    PRINT_USR_ERR("Error playing audio");
-                answer[strcspn(answer, "\r\n")] = '\0';
-                int distance = apply_levenshtein(answer, final_solution);
-                int lvl = calculate_level(distance, time_taken, strlen(final_solution));
-                ui_show_feedback(translation, distance, lvl);
-                calculate_sm2(cur_ve, lvl);
-                cur_ve->last_occurence = now;
-            }
-        }
-        update_vocab(cur_ve);
+        free(due_entries);
+        return;
     }
+
+    int direction = 0;
+    time_t now = time(NULL);
+    char *language = NULL;
+    char final_display[512] = {0};
+    char *origin_word = NULL;
+    char *translation = NULL;
+    char final_solution[256] = {0};
+    // * create bidirectinoal logic
+    if (strchr(cur_ve->front_text, '{') != NULL)
+    {
+        parse_lueckentext(cur_ve->front_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+        language = "de"; // UI-hint
+    }
+    else if (strchr(cur_ve->back_text, '{') != NULL)
+    {
+        parse_lueckentext(cur_ve->back_text, final_display, final_solution, sizeof(final_display), sizeof(final_solution));
+        language = cur_ve->language; // UI-hint
+    }
+    else
+    {
+        direction = rand() % 2;
+        if (direction == 0)
+        {
+            origin_word = cur_ve->front_text;
+            translation = cur_ve->back_text;
+            language = cur_ve->language;
+        }
+        else
+        {
+            origin_word = cur_ve->back_text;
+            translation = cur_ve->front_text;
+            language = USER_LANG;
+        }
+        strncpy(final_display, origin_word, sizeof(final_display));
+        strncpy(final_solution, translation, sizeof(final_solution));
+    }
+
+    // * check state
+    if (state->passive_mode_state)
+    {
+        if (ui_display_vocab_passive(final_display, final_solution) == 1)
+        {
+            PRINT_USR_ERR("Error displaying vocab");
+        }
+        cur_ve->next_due = now + 300;
+        goto cleanup;
+    }
+
+    char answer[128] = {0};
+    // * create command string for notification
+    if (ui_prompt_translation(final_display, language, answer, sizeof(answer), direction == 0))
+    {
+        PRINT_USR_ERR("Error prompting vocab");
+    }
+
+    time_t done = time(NULL);
+    int time_taken = done - now;
+    if (answer[0] == '\0')
+    {
+        cur_ve->next_due = now + 300;
+        goto cleanup;
+    }
+
+    error = ui_play_audio(cur_ve->language, cur_ve->front_text);
+    if (error)
+        PRINT_USR_ERR("Error playing audio");
+    answer[strcspn(answer, "\r\n")] = '\0';
+    int distance = apply_levenshtein(answer, final_solution);
+    int lvl = calculate_level(distance, time_taken, strlen(final_solution));
+    ui_show_feedback(translation, distance, lvl);
+    calculate_sm2(cur_ve, lvl);
+    cur_ve->last_occurence = now;
+
+cleanup:
+    update_vocab(cur_ve);
     free(due_entries);
 }
 

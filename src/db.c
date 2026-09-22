@@ -17,37 +17,42 @@ int get_due_vocab(vocab_entry **found_entries, size_t *count)
     size_t capacity = 10;
     *count = 0;
     *found_entries = malloc(capacity * sizeof(vocab_entry));
+
     if (*found_entries == NULL)
     {
         PRINT_ERR("Allocation Error");
         return -1;
     }
+
     if (fvoc == NULL)
     {
         PRINT_ERR("Failed to open database");
         return -1;
     }
+
     vocab_entry ve;
     while (fread(&ve, sizeof(vocab_entry), 1, fvoc))
     {
-        if (ve.next_due <= now && !(ve.is_deleted))
+        if (ve.next_due > now || ve.is_deleted)
+            continue;
+
+        (*found_entries)[*count] = ve;
+        vocab_found = 1;
+        (*count)++;
+
+        if (*count < capacity)
+            continue;
+
+        capacity *= 2;
+        vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
+
+        if (tmp == NULL)
         {
-            (*found_entries)[*count] = ve;
-            vocab_found = 1;
-            (*count)++;
+            PRINT_ERR("Allocation error");
+            free(*found_entries);
+            return -1;
         }
-        if (*count >= capacity)
-        {
-            capacity *= 2;
-            vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
-            if (tmp == NULL)
-            {
-                PRINT_ERR("Allocation error");
-                free(*found_entries);
-                return -1;
-            }
-            *found_entries = tmp;
-        }
+        *found_entries = tmp;
     }
     fclose(fvoc);
     return !vocab_found;
@@ -62,35 +67,39 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
     size_t capacity = 10;
     *count = 0;
     *found_entries = malloc(capacity * sizeof(vocab_entry));
+
     if (*found_entries == NULL)
     {
         PRINT_ERR("Allocation error");
         return -1;
     }
+
     if (fvoc == NULL)
     {
         PRINT_ERR("Failed to open database");
         free(*found_entries);
         return -1;
     }
+
     vocab_entry ve;
     while (fread(&ve, sizeof(vocab_entry), 1, fvoc))
     {
         (*found_entries)[*count] = ve;
         vocabs = 1;
         (*count)++;
-        if (*count >= capacity)
+        if (*count < capacity)
+            continue;
+
+        capacity *= 2;
+        vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
+
+        if (tmp == NULL)
         {
-            capacity *= 2;
-            vocab_entry *tmp = realloc(*found_entries, capacity * sizeof(vocab_entry));
-            if (tmp == NULL)
-            {
-                PRINT_ERR("Allocation error");
-                free(*found_entries);
-                return -1;
-            }
-            *found_entries = tmp;
+            PRINT_ERR("Allocation error");
+            free(*found_entries);
+            return -1;
         }
+        *found_entries = tmp;
     }
     fclose(fvoc);
     return !vocabs;
@@ -117,6 +126,7 @@ int update_vocab(vocab_entry *entry)
 
         fseek(f, -sizeof(vocab_entry), SEEK_CUR);
         int written = fwrite(entry, sizeof(vocab_entry), 1, f);
+
         if (written != 1)
         {
             PRINT_ERR("Error writing to file");

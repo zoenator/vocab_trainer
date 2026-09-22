@@ -47,6 +47,7 @@ int cmd_add(int argc, char **argv)
     {
         ve.entry_type = -1;
     }
+
     if (argc >= 7)
     {
         strncpy(ve.tags, tags, sizeof(ve.tags));
@@ -98,8 +99,10 @@ int cmd_stats(int argc, char **argv)
 
     for (size_t i = 0; i < count; i++)
     {
-        if (!entries[i].is_deleted)
-            total_words++;
+        if (entries[i].is_deleted)
+            continue;
+
+        total_words++;
 
         unsigned int exists = 0;
         unsigned int language_count = 0;
@@ -112,38 +115,36 @@ int cmd_stats(int argc, char **argv)
             }
             language_count++;
         }
-        if (!exists)
+        if (exists)
         {
-            if (language_count >= capacity)
+            different_languages[language_count]++;
+            continue;
+        }
+        if (language_count >= capacity)
+        {
+            void *tmp = realloc(different_languages, sizeof(int) * capacity * 2);
+            if (tmp == NULL)
             {
-                void *tmp = realloc(different_languages, sizeof(int) * capacity * 2);
-                if (tmp == NULL)
-                {
-                    printf("realloc error\n");
-                    exit_status = EX_OSERR;
-                    goto EXIT;
-                }
-                different_languages = tmp;
-                memset(different_languages + capacity, 0, sizeof(int) * capacity);
-                tmp = realloc(languages, sizeof(char *) * capacity * 2);
-                if (tmp == NULL)
-                {
-                    PRINT_ERR("Allocation error");
-                    exit_status = EX_OSERR;
-                    goto EXIT;
-                }
-                languages = tmp;
-                memset(languages + capacity, 0, sizeof(char *) * capacity);
-                capacity *= 2;
+                printf("realloc error\n");
+                exit_status = EX_OSERR;
+                goto EXIT;
             }
+            different_languages = tmp;
+            memset(different_languages + capacity, 0, sizeof(int) * capacity);
+            tmp = realloc(languages, sizeof(char *) * capacity * 2);
+            if (tmp == NULL)
+            {
+                PRINT_ERR("Allocation error");
+                exit_status = EX_OSERR;
+                goto EXIT;
+            }
+            languages = tmp;
+            memset(languages + capacity, 0, sizeof(char *) * capacity);
+            capacity *= 2;
+        }
 
-            languages[language_count] = strdup(entries[i].language);
-            different_languages[language_count]++;
-        }
-        else
-        {
-            different_languages[language_count]++;
-        }
+        languages[language_count] = strdup(entries[i].language);
+        different_languages[language_count]++;
     }
 
     printf("Total words: %i\n", total_words);
@@ -164,7 +165,7 @@ EXIT:
 
 int cmd_mode(int argc, char **argv)
 {
-    if (argc <= 2 || strcmp(argv[2], "PASSIVE") != 0 && strcmp(argv[2], "ACTIVE") != 0)
+    if (argc <= 2 || (strcmp(argv[2], "PASSIVE") != 0) && (strcmp(argv[2], "ACTIVE") != 0))
     {
         printf("Usage: VocabTrainer mode <mode> \n Modes: \n'PASSIVE'\n'ACTIVE'\n");
         return EX_USAGE;
@@ -179,6 +180,7 @@ int cmd_mode(int argc, char **argv)
         return EX_UNAVAILABLE;
     }
     int bytes_read = write(fd, msg, strlen(msg));
+
     if (bytes_read == -1)
     {
         PRINT_ERR("Failed to write to pipe");
@@ -188,6 +190,7 @@ int cmd_mode(int argc, char **argv)
         }
         return EX_UNAVAILABLE;
     }
+
     if (close(fd) == -1)
     {
         PRINT_ERR("Failed to close file descriptor");
@@ -248,19 +251,21 @@ int cmd_delete(int argc, char **argv)
 
     for (size_t i = 0; i < count; i++)
     {
-        if (entries[i].uid == uid)
+        if (entries[i].uid != uid)
+            continue;
+
+        entries[i].is_deleted = 1;
+        int error = update_vocab(&(entries[i]));
+        if (error != 0)
         {
-            entries[i].is_deleted = 1;
-            int error = update_vocab(&(entries[i]));
-            if (error != 0)
-            {
-                PRINT_ERR("Updateing vocab failed");
-                exit_status = EX_OSERR;
-            }
-            else
-                printf("Entry %u deleted. (%s -> %s)\n", entries[i].uid, entries[i].front_text, entries[i].back_text);
-            break;
+            PRINT_ERR("Updateing vocab failed");
+            exit_status = EX_OSERR;
         }
+        else
+        {
+            printf("Entry %u deleted. (%s -> %s)\n", entries[i].uid, entries[i].front_text, entries[i].back_text);
+        }
+        break;
     }
 
     return exit_status;

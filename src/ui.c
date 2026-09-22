@@ -80,51 +80,47 @@ int ui_prompt_translation(char *origin_word, char *language, char *answer_cmd, s
 
     fgets(action, sizeof(action), fp);
     pclose(fp);
-    if (strncmp(action, "default", strlen("default")) == 0)
-    {
-        // * create command string for zenity prompt
-        while (1)
-        {
-            if (show_audio)
-            {
-                snprintf(cmd,
-                         sizeof(cmd),
-                         "zenity --entry --title='Vocab Trainer' --extra-button='🔊' --text='Was heißt %s auf %s?'",
-                         origin_word,
-                         language);
-            }
-            else
-            {
-                {
-                    snprintf(
-                        cmd, sizeof(cmd), "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'", origin_word, language);
-                }
-            }
-            FILE *fp = popen(cmd, "r");
-            if (fp == NULL)
-            {
-                PRINT_ERR("Failed to run cmd");
-                return 1;
-            }
-
-            char answer[128];
-            fgets(answer, sizeof(answer), fp);
-            if (strcmp(answer, "🔊\n") == 0)
-            {
-                int error = 0;
-                error = ui_play_audio(language, origin_word);
-                pclose(fp);
-                continue;
-            }
-            pclose(fp);
-            answer[strcspn(answer, "\r\n")] = '\0';
-            strcpy(answer_cmd, answer);
-            break;
-        }
-    }
-    else
+    if (strncmp(action, "default", strlen("default")) != 0)
     {
         answer_cmd[0] = '\0';
+        return 0;
+    }
+
+    // * create command string for zenity prompt
+    while (1)
+    {
+        if (show_audio)
+        {
+            snprintf(cmd,
+                     sizeof(cmd),
+                     "zenity --entry --title='Vocab Trainer' --extra-button='🔊' --text='Was heißt %s auf %s?'",
+                     origin_word,
+                     language);
+        }
+        else
+        {
+            snprintf(cmd, sizeof(cmd), "zenity --entry --title='Vocab Trainer' --text='Was heißt %s auf %s?'", origin_word, language);
+        }
+        FILE *fp = popen(cmd, "r");
+        if (fp == NULL)
+        {
+            PRINT_ERR("Failed to run cmd");
+            return 1;
+        }
+
+        char answer[128];
+        fgets(answer, sizeof(answer), fp);
+        if (strcmp(answer, "🔊\n") == 0)
+        {
+            int error = 0;
+            error = ui_play_audio(language, origin_word);
+            pclose(fp);
+            continue;
+        }
+        pclose(fp);
+        answer[strcspn(answer, "\r\n")] = '\0';
+        strcpy(answer_cmd, answer);
+        break;
     }
     return 0;
 }
@@ -161,18 +157,18 @@ int ui_show_feedback(const char *correct_word, int distance, int level)
     }
 
     pid_t pid = fork();
-    if (pid == 0)
+    if (pid > 0)
     {
-        int error = 0;
-        error = execlp("notify-send", "notify-send", "-u", urgency, "-i", icon, "Rating", text, NULL);
-        if (error == -1)
-            PRINT_ERR("Execlp failed");
-        _exit(1);
+        return 0;
     }
     else if (pid < 0)
     {
         PRINT_ERR("Fork failed");
         return 1;
     }
-    return 0;
+    int error = 0;
+    error = execlp("notify-send", "notify-send", "-u", urgency, "-i", icon, "Rating", text, NULL);
+    if (error == -1)
+        PRINT_ERR("Execlp failed");
+    _exit(1);
 }
