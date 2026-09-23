@@ -7,6 +7,7 @@
 #define USER_LANG "DE"
 #define STD_ARRAY_SIZE 256
 #define TAG_SIZE 128
+#define USR_FIELDS 6 // fields the user might wanna edit (Content + classification for now)
 
 typedef struct vocab_entry
 {

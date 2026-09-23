@@ -8,6 +8,33 @@
 #include <string.h>
 #include <sys/file.h>
 
+int get_vocab_by_id(vocab_entry *entry, unsigned long id)
+{
+    FILE *fvoc = fopen(get_storage_filepath(), "r+b");
+    if (fvoc == NULL)
+    {
+        PRINT_ERR("Failed to open database");
+        return -1;
+    }
+    int vocab_found = 0;
+
+    while (fread(entry, sizeof(vocab_entry), 1, fvoc))
+    {
+        if (entry->uid != id)
+            continue;
+
+        vocab_found = 1;
+        break;
+    }
+    fclose(fvoc);
+    if (vocab_found == 0)
+    {
+        PRINT_USR_ERR("No vocab found");
+        return 1;
+    }
+    return 0;
+}
+
 int get_due_vocab(vocab_entry **found_entries, size_t *count)
 {
     // vocab found returns  0, not found 1, error -1
@@ -77,6 +104,7 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
     if (fvoc == NULL)
     {
         PRINT_ERR("Failed to open database");
+        printf("AHHH\n %s\n", get_storage_filepath());
         free(*found_entries);
         return -1;
     }

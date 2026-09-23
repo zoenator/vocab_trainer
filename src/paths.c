@@ -135,7 +135,7 @@ static int initialize_paths()
     }
 
     const char *filename_storage = "/vocab.bin";
-    len = strlen(storage_dir) + strlen(filename) + 1;
+    len = strlen(storage_dir) + strlen(filename_storage) + 1;
 
     if (len > PATH_MAX)
     {
@@ -151,7 +151,7 @@ static int initialize_paths()
         error = 1;
         goto cleanup;
     }
-    snprintf(storage_filepath, len, "%s%s", storage_dir, filename);
+    snprintf(storage_filepath, len, "%s%s", storage_dir, filename_storage);
 
     paths_initialized = 1;
     atexit(free_filepaths);

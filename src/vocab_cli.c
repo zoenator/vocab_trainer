@@ -12,13 +12,137 @@
 #include <sysexits.h>
 #include <unistd.h>
 
+int cmd_edit(int argc, char **argv)
+{
+    if (argv[2] == NULL)
+    {
+        printf("Usage: Vocab_CLI edit <ID>\n");
+        return EX_USAGE;
+    }
+
+    vocab_entry ve;
+    char *endptr;
+    memset(&ve, 0, sizeof(vocab_entry));
+    unsigned long id = strtol(argv[2], &endptr, 10);
+    if (argv[2] == endptr)
+    {
+        PRINT_ERR("No number entered");
+        return EX_USAGE;
+    }
+    int ret = get_vocab_by_id(&ve, id);
+    if (ret == 1)
+    {
+        printf("No vocab refers to this uid: %lu\n", id);
+        return 0;
+    }
+    else if (ret == -1)
+    {
+        PRINT_USR_ERR("An error occured searching your vocab");
+        return EX_OSERR;
+    }
+    char buffer[256];
+
+    printf("Old lang: %s \nNew[Enter nothing for no change]: ", ve.language);
+    char *err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        buffer[strcspn(buffer, "\n")] = '\0'; // rm fgets newline
+        strncpy(ve.language, buffer, sizeof(ve.language) - 1);
+    }
+
+    printf("Old entry_type: %d \nNew[Enter nothing for no change]: ", ve.entry_type);
+    err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        int entry_type = strtol(buffer, &endptr, 10);
+        if (endptr == buffer)
+        {
+            PRINT_ERR("No number entered");
+            return EX_USAGE;
+        }
+
+        ve.entry_type = entry_type;
+    }
+
+    printf("Old tags: %s \nNew[Enter nothing for no change]: ", ve.tags);
+    err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        buffer[strcspn(buffer, "\n")] = '\0'; // rm fgets newline
+        strncpy(ve.tags, buffer, sizeof(ve.tags) - 1);
+    }
+
+    printf("Old front_text: %s \nNew[Enter nothing for no change]: ", ve.front_text);
+    err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        buffer[strcspn(buffer, "\n")] = '\0'; // rm fgets newline
+        strncpy(ve.front_text, buffer, sizeof(ve.front_text) - 1);
+    }
+
+    printf("Old back_text: %s \nNew[Enter nothing for no change]: ", ve.back_text);
+    err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        buffer[strcspn(buffer, "\n")] = '\0'; // rm fgets newline
+        strncpy(ve.back_text, buffer, sizeof(ve.back_text) - 1);
+    }
+
+    printf("Old example sentence: %s \nNew[Enter nothing for no change]: ", ve.example_sentence);
+    err = fgets(buffer, sizeof(buffer), stdin);
+    if (err == NULL)
+    {
+        PRINT_ERR("Fgets failed");
+        return EX_OSERR;
+    }
+    if (buffer[0] != '\n')
+    {
+        buffer[strcspn(buffer, "\n")] = '\0'; // rm fgets newline
+        strncpy(ve.example_sentence, buffer, sizeof(ve.example_sentence) - 1);
+    }
+
+    int error = update_vocab(&ve);
+    if (error != 0)
+    {
+        PRINT_ERR("Updating vocab failed");
+        return EX_OSERR;
+    }
+
+    return 0;
+}
+
 int cmd_add(int argc, char **argv)
 {
     // TODO This needs a more dynamic redesign (Here you cant type in gender without giving a tpye too which is kinda meh)
     // TODO Needs error management !USER INPUT!
     if (argc < 5)
     {
-        printf("Usage: Vocab_CLI add <lang> <front_text> <back_text> [entry_type] [tags]");
+        printf("Usage: Vocab_CLI add <lang> <front_text> <back_text> [entry_type] [tags]\n");
         return EX_USAGE;
     }
 
@@ -67,6 +191,7 @@ int cmd_add(int argc, char **argv)
         PRINT_USR_ERR("Inserting vocab didn't work");
         return EX_OSERR;
     }
+
     return 0;
 }
 
@@ -120,6 +245,7 @@ int cmd_stats(int argc, char **argv)
             different_languages[language_count]++;
             continue;
         }
+
         if (language_count >= capacity)
         {
             void *tmp = realloc(different_languages, sizeof(int) * capacity * 2);
@@ -207,7 +333,6 @@ int cmd_list(int argc, char **argv)
     exit_status = get_all_vocabs(&entries, &count);
     if (exit_status == -1)
     {
-        free(entries);
         PRINT_ERR("Getting vocabs failed");
         exit_status = EX_OSERR;
         return exit_status;
@@ -243,7 +368,6 @@ int cmd_delete(int argc, char **argv)
     exit_status = get_all_vocabs(&entries, &count);
     if (exit_status == -1)
     {
-        free(entries);
         PRINT_ERR("Getting vocabs failed");
         exit_status = EX_OSERR;
         return exit_status;
@@ -299,6 +423,10 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "delete") == 0)
     {
         return cmd_delete(argc, argv);
+    }
+    else if (strcmp(argv[1], "edit") == 0)
+    {
+        return cmd_edit(argc, argv);
     }
     else
     {
