@@ -20,14 +20,14 @@ if [ -z "$WORD" ] || [ "$WORD" = "Nothing is copied" ]; then
     
     if [ -z "$WORD" ]; then
         echo -n "$OLD_CLIP" | wl-copy
-        notify-send "Vocab Error" "Copy failed. Release Super key faster/ Highlight something."
+        notify-send "Vocab Error" "Copy failed. Release Super key faster / Highlight something."
         exit 1
     fi
     
     echo -n "$OLD_CLIP" | wl-copy
 fi
 
-# Trim whitespace
+# Trim whitespace & newlines
 WORD=$(echo "$WORD" | xargs)
 
 if [ -z "$WORD" ]; then
@@ -35,19 +35,11 @@ if [ -z "$WORD" ]; then
     exit 1
 fi
 
-CODE=$(trans -b -id "$WORD")
-TRANSLATION=$(trans -b "$WORD")
+TRANSLATION=$(Vocab_cli auto-add "$WORD" "Autodetect" "de")
+STATUS=$?
 
-if [ -z "$TRANSLATION" ]; then
-    notify-send "Vocab Error" "Translation for '$WORD' failed."
-    exit 1
-fi
-
-Vocab_cli add "$CODE" "$TRANSLATION" "$WORD" 0 "auto"
-
-if [ $? -eq 0 ]; then
+if [ $STATUS -eq 0 ]; then
     notify-send "Vocab saved!" "$WORD -> $TRANSLATION"
 else
-    notify-send "Vocab Error" "Failed to save to database."
+    notify-send "Vocab Error" "Failed to translate or save to database."
 fi
-

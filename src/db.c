@@ -104,7 +104,6 @@ int get_all_vocabs(vocab_entry **found_entries, size_t *count)
     if (fvoc == NULL)
     {
         PRINT_ERR("Failed to open database");
-        printf("AHHH\n %s\n", get_storage_filepath());
         free(*found_entries);
         return -1;
     }

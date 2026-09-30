@@ -1,6 +1,7 @@
 #include "db.h"
 #include "paths.h"
 #include "sm2.h"
+#include "translator.h"
 #include "utils.h"
 #include "vocab_entry.h"
 
@@ -395,6 +396,65 @@ int cmd_delete(int argc, char **argv)
     return exit_status;
 }
 
+int cmd_translate(int argc, char **argv)
+{
+    if (argc < 5)
+    {
+        PRINT_USR_ERR("Too few arguments");
+        return EX_USAGE;
+    }
+    char translation[256];
+    if (fetch_translation(argv[2], argv[3], argv[4], translation, sizeof(translation)))
+    {
+        PRINT_USR_ERR("Translation failed");
+        return EX_UNAVAILABLE;
+    }
+
+    printf("%s\n", translation);
+    return 0;
+}
+
+int cmd_add_auto(int argc, char **argv)
+{
+    if (argc < 5)
+    {
+        PRINT_USR_ERR("Too few arguments");
+        return EX_USAGE;
+    }
+    char translation[256];
+    if (fetch_translation(argv[2], argv[3], argv[4], translation, sizeof(translation)))
+    {
+        PRINT_USR_ERR("Translation failed");
+        return EX_UNAVAILABLE;
+    }
+
+    vocab_entry ve;
+    memset(&ve, 0, sizeof(vocab_entry));
+    init_sm2_stats(&ve);
+
+    strncpy(ve.language, argv[3], sizeof(ve.language));
+    ve.language[sizeof(ve.language) - 1] = '\0';
+
+    strncpy(ve.front_text, argv[2], sizeof(ve.front_text));
+    ve.front_text[sizeof(ve.front_text) - 1] = '\0';
+
+    strncpy(ve.back_text, translation, sizeof(ve.back_text));
+    ve.back_text[sizeof(ve.back_text) - 1] = '\0';
+    ve.entry_type = -1;
+    ve.tags[0] = '\0';
+    time_t now = time(NULL);
+    ve.creation_date = now;
+
+    int error = insert_vocab(&ve);
+    if (error)
+    {
+        PRINT_USR_ERR("Inserting vocab didn't work");
+        return EX_OSERR;
+    }
+    printf("%s\n", translation);
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
 
@@ -427,6 +487,14 @@ int main(int argc, char **argv)
     else if (strcmp(argv[1], "edit") == 0)
     {
         return cmd_edit(argc, argv);
+    }
+    else if (strcmp(argv[1], "translate") == 0)
+    {
+        return cmd_translate(argc, argv);
+    }
+    else if (strcmp(argv[1], "auto-add") == 0)
+    {
+        return cmd_add_auto(argc, argv);
     }
     else
     {

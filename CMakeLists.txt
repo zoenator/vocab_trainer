@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD 11)
 
 # System dependencies
 find_package(PkgConfig REQUIRED)
+find_package(CURL REQUIRED)
 pkg_check_modules(GTK3 REQUIRED gtk+-3.0)
 
 # Global includes
@@ -16,6 +17,7 @@ add_executable(Vocab_cli
     src/paths.c
     src/db.c
     src/sm2.c
+    src/translator.c
 )
 
 add_executable(VocabDaemon 
@@ -38,6 +40,9 @@ add_executable(Vocab_GUI
 target_include_directories(Vocab_GUI PRIVATE ${GTK3_INCLUDE_DIRS})
 target_link_libraries(Vocab_GUI PRIVATE ${GTK3_LIBRARIES})
 target_compile_options(Vocab_GUI PRIVATE ${GTK3_CFLAGS_OTHER})
+
+# Link lcurl
+target_link_libraries(Vocab_cli PRIVATE CURL::libcurl)
 
 # Install rules
 install(TARGETS Vocab_cli VocabDaemon Vocab_GUI DESTINATION bin)
